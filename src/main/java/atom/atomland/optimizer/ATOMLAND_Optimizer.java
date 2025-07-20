@@ -31,16 +31,15 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
 
 /**
  * ATOMLAND Optimizer
  *
  * @author Atom Gamer Arda
- * @version 1.0.0
+ * @version 2.1.0
  *
  * A comprehensive, all-in-one, high-performance, and customizable optimization plugin for Minecraft servers.
- * This single file contains all the features as requested.
+ * Switched back to ProtocolLib for stable packet handling.
  */
 public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandExecutor {
 
@@ -132,9 +131,9 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     public void onEnable() {
         instance = this;
 
-        // Check for HamsterAPI dependency
-        if (getServer().getPluginManager().getPlugin("HamsterAPI") == null) {
-            getLogger().severe("HamsterAPI bulunamadı! ATOMLAND Optimizer devre dışı bırakılıyor.");
+        // Check for ProtocolLib dependency
+        if (getServer().getPluginManager().getPlugin("ProtocolLib") == null) {
+            getLogger().severe("ProtocolLib bulunamadı! ATOMLAND Optimizer devre dışı bırakılıyor.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -152,17 +151,20 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         // Start tasks
         startTasks();
 
-        // Register packet listeners
+        // Register packet listeners using ProtocolLib
         registerPacketListeners();
 
         getLogger().info("-------------------------------------------");
         getLogger().info("ATOMLAND Optimizer by Atom Gamer Arda");
-        getLogger().info("Başarıyla etkinleştirildi!");
+        getLogger().info("Başarıyla etkinleştirildi! (ProtocolLib Version)");
         getLogger().info("-------------------------------------------");
     }
 
     @Override
     public void onDisable() {
+        if (protocolManager != null) {
+            protocolManager.removePacketListeners(this);
+        }
         getServer().getScheduler().cancelTasks(this);
         getLogger().info("ATOMLAND Optimizer devre dışı bırakıldı.");
     }
@@ -278,46 +280,48 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         if (customMobAiEnabled || entityCullingEnabled) new CustomMobAITask().runTaskTimerAsynchronously(this, 40L, 40L);
     }
 
-    // --- Packet Listener Registration ---
+    // --- Packet Listener Registration with ProtocolLib ---
     private void registerPacketListeners() {
-        if (fpsHelperEnabled || badPacketControlEnabled || explosionManagerEnabled) {
-            protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL,
-                    PacketType.Play.Server.WORLD_PARTICLES,
-                    PacketType.Play.Server.EXPLOSION,
-                    PacketType.Play.Client.getInstance().getPacketClass().getSimpleName().startsWith("PacketPlayIn") ? PacketType.Play.Client.getInstance() : PacketType.Play.Client.PONG) {
+        if (!fpsHelperEnabled && !badPacketControlEnabled && !explosionManagerEnabled) return;
 
+        protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL,
+                PacketType.Play.Server.WORLD_PARTICLES,
+                PacketType.Play.Server.EXPLOSION) {
+            @Override
+            public void onPacketSending(PacketEvent event) {
+                if (event.isCancelled()) return;
+
+                PacketType type = event.getPacketType();
+                PacketContainer packet = event.getPacket();
+
+                if (fpsHelperEnabled && blockHeavyParticles && type == PacketType.Play.Server.WORLD_PARTICLES) {
+                    try {
+                        WrappedParticle wrappedParticle = packet.getNewParticles().read(0);
+                        String particleName = wrappedParticle.getParticle().name();
+                        if (particleBlacklist.contains(particleName)) {
+                            event.setCancelled(true);
+                        }
+                    } catch (Exception e) {
+                        // Ignore read errors
+                    }
+                } else if (explosionManagerEnabled && cancelExplosionEffects && type == PacketType.Play.Server.EXPLOSION) {
+                    event.setCancelled(true);
+                }
+            }
+        });
+
+        if (badPacketControlEnabled) {
+            protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL, PacketType.Play.Client.getInstance()) {
                 @Override
                 public void onPacketReceiving(PacketEvent event) {
-                    if (event.isCancelled() || !badPacketControlEnabled) return;
-
+                    if (event.isCancelled() || event.getPlayer() == null) return;
                     UUID playerUUID = event.getPlayer().getUniqueId();
                     packetCounts.put(playerUUID, packetCounts.getOrDefault(playerUUID, 0) + 1);
-                }
-
-                @Override
-                public void onPacketSending(PacketEvent event) {
-                    if (event.isCancelled()) return;
-
-                    PacketType type = event.getPacketType();
-                    PacketContainer packet = event.getPacket();
-
-                    if (fpsHelperEnabled && type == PacketType.Play.Server.WORLD_PARTICLES && blockHeavyParticles) {
-                        try {
-                            WrappedParticle wrappedParticle = packet.getNewParticles().read(0);
-                            String particleName = wrappedParticle.getParticle().toString();
-                            if (particleBlacklist.contains(particleName)) {
-                                event.setCancelled(true);
-                            }
-                        } catch (Exception e) {
-                            // Ignore read errors
-                        }
-                    } else if (explosionManagerEnabled && type == PacketType.Play.Server.EXPLOSION && cancelExplosionEffects) {
-                        event.setCancelled(true);
-                    }
                 }
             });
         }
     }
+
 
     // --- Event Handlers ---
 
@@ -360,9 +364,6 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
             }
             redstoneLastUpdate.put(loc, now);
         }
-
-        // Anti-lag circuit logic would be more complex, involving tracking updates per second.
-        // This is a simplified version.
     }
 
     // Item Cooldowns
@@ -422,7 +423,7 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     public void onFallingBlock(EntityChangeBlockEvent event) {
         if (disableFallingBlocks && event.getEntityType() == EntityType.FALLING_BLOCK) {
             event.setCancelled(true);
-            event.getBlock().getState().update(false, false); // Prevent the block from disappearing
+            event.getBlock().getState().update(false, false);
         }
     }
 
@@ -484,6 +485,16 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         }.runTaskAsynchronously(this);
     }
 
+    // --- Helper Methods ---
+    private boolean isChunkInUse(Chunk chunk) {
+        for (Entity entity : chunk.getEntities()) {
+            if (entity instanceof Player) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // --- Runnable Tasks ---
 
     private class SmartItemClearerTask extends BukkitRunnable {
@@ -501,7 +512,6 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
             }
 
             if (timer <= 0) {
-                int clearedCount = 0;
                 List<Entity> toRemove = new ArrayList<>();
                 for (World world : Bukkit.getWorlds()) {
                     for (Entity entity : world.getEntities()) {
@@ -545,7 +555,8 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
                     boolean shouldRemove = true;
                     if (ignoreNamedMobs && entity.getCustomName() != null) shouldRemove = false;
                     if (ignoreTamedMobs && entity instanceof Tameable && ((Tameable) entity).isTamed()) shouldRemove = false;
-                    if (ignoreInLoveMobs && entity.isLoveMode()) shouldRemove = false;
+                    // FIX: Check if entity is an Animal before casting and calling isLoveMode()
+                    if (ignoreInLoveMobs && entity instanceof Animals && ((Animals) entity).isLoveMode()) shouldRemove = false;
 
                     if (shouldRemove) {
                         toRemove.add(entity);
@@ -570,15 +581,13 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         public void run() {
             double currentTps = Bukkit.getServer().getTPS()[0];
 
-            // Paper-specific MSPT check
             double currentMspt = 0;
             try {
-                // Using reflection to be safe on Spigot
-                Object minecraftServer = Bukkit.getServer().getClass().getMethod("getServer").invoke(Bukkit.getServer());
-                long[] tickTimes = (long[]) minecraftServer.getClass().getField("h").get(minecraftServer); // This field name can change
-                currentMspt = Arrays.stream(tickTimes).average().orElse(0) / 1_000_000.0;
+                if (Bukkit.getMinecraftVersion().contains("1.18") || Bukkit.getMinecraftVersion().contains("1.19") || Bukkit.getMinecraftVersion().contains("1.20") || Bukkit.getMinecraftVersion().contains("1.21")) {
+                    currentMspt = Bukkit.getServer().getAverageTickTime();
+                }
             } catch (Exception e) {
-                // Not on Paper or a compatible fork, or field name changed.
+                // Not on Paper or a compatible fork.
             }
 
             if (currentTps < tpsThreshold || (currentMspt > 0 && currentMspt > msptThreshold)) {
@@ -634,12 +643,12 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         @Override
         public void run() {
             long now = System.currentTimeMillis();
-            int unloadedCount = 0;
             List<Chunk> toUnload = new ArrayList<>();
 
             for (World world : Bukkit.getWorlds()) {
                 for (Chunk chunk : world.getLoadedChunks()) {
-                    if (chunk.isForceLoaded() || chunk.isPlayersInChunk()) {
+                    // FIX: Replace deprecated isPlayersInChunk() with a modern equivalent
+                    if (chunk.isForceLoaded() || isChunkInUse(chunk)) {
                         chunkLastActivity.put(chunk, now); // Update activity if players are present
                         continue;
                     }
@@ -656,7 +665,8 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
                     @Override
                     public void run() {
                         for (Chunk chunk : toUnload) {
-                            if (!chunk.isPlayersInChunk()) { // Final check
+                            // FIX: Replace deprecated isPlayersInChunk() with a modern equivalent
+                            if (!isChunkInUse(chunk)) { // Final check
                                 chunk.unload(true);
                                 chunkLastActivity.remove(chunk);
                             }
@@ -671,12 +681,11 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     private class CustomMobAITask extends BukkitRunnable {
         @Override
         public void run() {
-            final int cullDistSq = cullDistance * cullDistance;
             final int aiDistSq = disableAiDistance * disableAiDistance;
 
             for (World world : Bukkit.getWorlds()) {
                 List<Player> players = world.getPlayers();
-                if (players.isEmpty()) { // No players in world, disable all AI
+                if (players.isEmpty()) {
                     for (LivingEntity entity : world.getLivingEntities()) {
                         if (entity instanceof Mob && !mobAiBlacklist.contains(entity.getType().name().toUpperCase())) {
                             ((Mob) entity).setAI(false);

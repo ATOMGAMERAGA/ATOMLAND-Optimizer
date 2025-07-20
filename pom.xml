@@ -7,7 +7,7 @@
     <!-- Proje Bilgileri -->
     <groupId>atom.atomland.optimizer</groupId>
     <artifactId>ATOMLAND_Optimizer</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version> <!-- ProtocolLib Version -->
 
     <properties>
         <!-- Proje ve Derleyici Ayarları -->
@@ -27,11 +27,6 @@
             <id>dmulloy2-repo</id>
             <url>https://repo.dmulloy2.net/repository/public/</url>
         </repository>
-        <!-- HamsterAPI için (JitPack üzerinden) -->
-        <repository>
-            <id>jitpack.io</id>
-            <url>https://jitpack.io</url>
-        </repository>
     </repositories>
 
     <!-- Projenin İhtiyaç Duyduğu Kütüphaneler (Dependencies) -->
@@ -43,14 +38,7 @@
             <version>1.20.1-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
-        <!-- HamsterAPI (İsteğiniz üzerine) -->
-        <dependency>
-            <groupId>com.github.ArkFlame</groupId>
-            <artifactId>HamsterAPI</artifactId>
-            <version>1.2.0</version> <!-- En son sürümü kontrol ediniz -->
-            <scope>provided</scope>
-        </dependency>
-        <!-- ProtocolLib (Mevcut Java kodunun çalışması için gerekli) -->
+        <!-- ProtocolLib Bağımlılığı -->
         <dependency>
             <groupId>com.comphenix.protocol</groupId>
             <artifactId>ProtocolLib</artifactId>
@@ -62,8 +50,8 @@
     <!-- Projeyi Derleme ve Paketleme Ayarları -->
     <build>
         <!-- Oluşturulacak .jar dosyasının adı -->
-        <finalName>${project.artifactId}-${project.version}</finalName>
-        <defaultGoal>clean install</defaultGoal>
+        <finalName>${project.artifactId}</finalName>
+        <defaultGoal>clean package</defaultGoal>
         <plugins>
             <!-- Java Sürümünü Belirleyen Derleyici Eklentisi -->
             <plugin>
