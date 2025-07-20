@@ -11,13 +11,10 @@ pipeline {
         JDK_DIR_NAME = 'jdk-21'
     }
 
-    // 3. Tetikleyiciler - SCM polling ile hemen çalışan çözüm
-    triggers {
-        // GitHub Push Event için webhook tetikleyicisi
-        githubPush()
-        // SCM polling - her 2 dakikada bir kontrol eder (webhook çalışmazsa)
-        pollSCM('H/2 * * * *')
-    }
+    // 3. Tetikleyiciler devre dışı - Manuel build için
+    // triggers {
+    //     pollSCM('* * * * *')
+    // }
 
     // 4. Pipeline Seçenekleri
     options {
