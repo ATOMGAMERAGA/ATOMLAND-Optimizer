@@ -1,5 +1,5 @@
 // Jenkins Pipeline Script for ATOMLAND Optimizer
-// GitHub webhook ile otomatik build tetikleme
+// GitHub webhook ile otomatik build tetikleme + Modrinth yayınlama
 pipeline {
     // 1. Agent Ayarı
     agent any
@@ -9,6 +9,11 @@ pipeline {
         MAVEN_TOOL_NAME = 'Maven 3.9.6'
         JDK_URL = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.4%2B7/OpenJDK21U-jdk_x64_linux_hotspot_21.0.4_7.tar.gz"
         JDK_DIR_NAME = 'jdk-21'
+
+        // Modrinth ayarları
+        MODRINTH_PROJECT_ID = 'dMkSe22y' // ATOMLAND Optimizer project ID
+        MINECRAFT_VERSIONS = '["1.20.5", "1.20.6", "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6", "1.21.7", "1.21.8"]'
+        LOADERS = '["paper", "purpur", "spigot", "bukkit"]'
     }
 
     // 3. Tetikleyiciler - GitHub webhook ve SCM polling
@@ -46,6 +51,10 @@ pipeline {
                     echo "Build tetikleyen commit: ${commitId}"
                     echo "Branch: ${branchName}"
                     echo "Commit mesajı: ${commitMessage}"
+
+                    // Global değişkenleri ayarla
+                    env.COMMIT_MESSAGE = commitMessage
+                    env.BRANCH_NAME = branchName
                 }
             }
         }
@@ -87,6 +96,15 @@ pipeline {
                         echo "Proje Maven ile derleniyor... Build Numarası: ${env.BUILD_NUMBER}"
                         echo "Git Branch: ${env.GIT_BRANCH}"
                         sh 'mvn clean package -DskipTests=false'
+
+                        // JAR dosyasının tam yolunu bul ve global değişkene kaydet
+                        def jarFile = sh(returnStdout: true, script: 'find target -name "*.jar" -type f | head -1').trim()
+                        if (jarFile) {
+                            env.JAR_FILE_PATH = jarFile
+                            echo "JAR dosyası bulundu: ${jarFile}"
+                        } else {
+                            error "JAR dosyası bulunamadı!"
+                        }
                     }
                 }
             }
@@ -120,11 +138,68 @@ pipeline {
             }
         }
 
-        // Aşama 4: Build Bildirim
+        // Aşama 4: Modrinth'e Yayınla (Sadece master/main branch için)
+        stage('Publish to Modrinth') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                    // Veya tag push'larında yayınlamak istiyorsanız:
+                    // tag pattern: 'v*', comparator: 'REGEXP'
+                }
+            }
+            steps {
+                echo 'Modrinth\'e yayınlanıyor...'
+                withCredentials([string(credentialsId: 'MODRINTH_TOKEN', variable: 'MODRINTH_API_TOKEN')]) {
+                    script {
+                        // pom.xml'den versiyonu oku
+                        def pomVersion = sh(returnStdout: true, script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout').trim()
+                        def versionNumber = "${pomVersion}"
+                        def fileName = sh(returnStdout: true, script: 'basename ${JAR_FILE_PATH}').trim()
+
+                        echo "Yayınlanacak versiyon: ${versionNumber}"
+                        echo "Dosya adı: ${fileName}"
+
+                        // Changelog'u commit mesajından oluştur
+                        def changelog = env.COMMIT_MESSAGE ?: "Yeni sürüm: ${versionNumber}"
+
+                        // Modrinth API'ye yayınla
+                        sh """
+                            curl -X POST 'https://api.modrinth.com/v2/version' \\
+                                -H 'Authorization: ${MODRINTH_API_TOKEN}' \\
+                                -H 'Content-Type: multipart/form-data' \\
+                                -F 'data={
+                                    "name": "${versionNumber}",
+                                    "version_number": "${versionNumber}",
+                                    "changelog": "${changelog}",
+                                    "dependencies": [],
+                                    "game_versions": ${MINECRAFT_VERSIONS},
+                                    "version_type": "release",
+                                    "loaders": ${LOADERS},
+                                    "featured": false,
+                                    "project_id": "${MODRINTH_PROJECT_ID}"
+                                }' \\
+                                -F 'file=@${JAR_FILE_PATH};filename=${fileName}'
+                        """
+
+                        echo "✅ Modrinth'e başarıyla yayınlandı!"
+                    }
+                }
+            }
+        }
+
+        // Aşama 5: Build Bildirim
         stage('Notification') {
             steps {
                 echo "Build başarıyla tamamlandı!"
                 echo "Artifact'lar Jenkins'e yüklendi."
+                when {
+                    anyOf {
+                        branch 'main'
+                        branch 'master'
+                    }
+                }
+                echo "Modrinth'e yayınlandı!"
                 echo "Build zamanı: ${new Date()}"
             }
         }
