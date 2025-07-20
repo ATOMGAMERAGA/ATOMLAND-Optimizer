@@ -1,0 +1,172 @@
+# ---------------------------------------------------------------------------------- #
+#                  ATOMLAND Optimizer - Eklenti Yapılandırma Dosyası                 #
+#                             Yapımcı: Atom Gamer Arda                               #
+# ---------------------------------------------------------------------------------- #
+# Tüm ayarları burada bulabilirsiniz. Değişiklik yaptıktan sonra sunucuyu yeniden
+# başlatın veya "/ao reload" komutunu kullanın.
+# ---------------------------------------------------------------------------------- #
+
+# Eklentinin mesajlarında kullanılacak genel ön ek.
+prefix: "&8[&6ATOMLAND&bOptimizer&8] &r"
+
+# --- Varlık (Entity) Optimizasyonları ---
+entity-optimization:
+  enabled: true
+  # Canavarların oyuncuları hedef almasını engeller.
+  cancel-monster-targeting: true
+  # Canavarların birbirine hasar vermesini engeller.
+  prevent-monster-infighting: true
+  # Sunucu performansını artırmak için doğal yollarla (NATURAL) canavar doğmasını engeller.
+  # Spawner gibi diğer doğma nedenlerini etkilemez.
+  cancel-natural-spawning: true
+
+# --- FPS Arttırıcı (İstemci Optimizasyonları) ---
+# Bu ayarlar, oyuncunun FPS'ini düşüren bazı gereksiz paketleri engelleyerek performansı artırır.
+fps-helper:
+  enabled: true
+  packet-filtering:
+    # Yüksek yoğunluklu ve FPS düşüren parçacık (particle) paketlerini engeller.
+    block-heavy-particles: true
+    particle-blacklist:
+      - "EXPLOSION_HUGE"
+      - "EXPLOSION_LARGE"
+      - "SUSPENDED_DEPTH"
+
+# --- Akıllı Temizleyiciler ---
+smart-cleaner:
+  # Yerdeki gereksiz eşyaları temizler.
+  item-cleaner:
+    enabled: true
+    # Temizliğin ne sıklıkla yapılacağı (saniye).
+    interval: 300 # 5 dakika
+    # Temizlikten önce oyunculara uyarı mesajı gönderilecek süreler (saniye).
+    broadcast-warnings: [60, 30, 15, 10, 5]
+    # Temizlenmeyecek eşyaların listesi. (Örn: NETHERITE_SWORD)
+    # https://hub.spigotmc.org/javadocs/spigot/org/bukkit/Material.html
+    item-blacklist:
+      - "DIAMOND"
+      - "NETHERITE_INGOT"
+      - "ENCHANTED_BOOK"
+  # Gereksiz canavarları temizler.
+  mob-cleaner:
+    enabled: true
+    interval: 600 # 10 dakika
+    # Temizlenmeyecek canavarlar (isimlendirilmiş, evcilleştirilmiş, özel etiketli vb.).
+    ignore-named: true
+    ignore-tamed: true
+    ignore-in-love: true # Çiftleşme modundaki hayvanları silme
+
+# --- TPS & MSPT Optimizasyonu ---
+performance-monitor:
+  enabled: true
+  # TPS bu değerin altına düştüğünde optimizasyonları tetikler.
+  tps-threshold: 18.5
+  # MSPT (Milisaniye/Tick) bu değeri aştığında optimizasyonları tetikler. (Sadece Paper/forkları)
+  mspt-threshold: 40.0
+  # Optimizasyon tetiklendiğinde yapılacaklar.
+  actions:
+    run-garbage-collector: true
+    clear-unused-chunks: true
+    optimize-mobs-ai: true
+
+# --- Redstone Optimizasyonu ---
+redstone-optimizer:
+  enabled: true
+  # Aşırı yük bindiren redstone devrelerini otomatik olarak devre dışı bırakır.
+  anti-lag-circuit:
+    enabled: true
+    # Bir saniyede bir bloktan alınabilecek maksimum redstone güncellemesi.
+    updates-per-second-limit: 20
+  # Redstone sinyal hızını yavaşlatarak sürekli sinyallerin neden olduğu yükü azaltır.
+  update-throttling:
+    enabled: true
+    # Her redstone güncellemesi arasındaki minimum gecikme (milisaniye).
+    min-delay-ms: 50
+
+# --- Chunk Optimizasyonları ---
+chunk-optimizer:
+  enabled: true
+  # Oyuncu olmayan ve kullanılmayan chunk'ları belirli aralıklarla temizler.
+  unused-chunk-cleaner:
+    enabled: true
+    interval: 900 # 15 dakika
+    # Bir chunk'ın temizlenmesi için en az ne kadar süre boyunca oyuncusuz kalması gerektiği (saniye).
+    min-idle-time: 300 # 5 dakika
+  # Oyuncuların etrafındaki chunk'ları daha hızlı yükler.
+  fast-chunk-loader:
+    enabled: true
+    # Oyuncu hareket ettiğinde ne kadar uzağa chunk ön yükleneceği.
+    preload-radius: 2
+
+# --- Özel Canavar Yapay Zekası (AI) ---
+custom-mob-ai:
+  enabled: true
+  # Oyuncular bu mesafeden daha uzaktaysa canavarların yapay zekasını devre dışı bırakır.
+  # Bu, sunucu yükünü önemli ölçüde azaltır. -1 yaparsanız devre dışı kalır.
+  disable-ai-if-player-is-further-than: 48
+  # Yapay zekası devre dışı bırakılmayacak canavarların listesi.
+  ai-blacklist:
+    - "VILLAGER"
+    - "WOLF"
+
+# --- Eşya Kullanım Gecikmesi (Cooldown) ---
+item-cooldowns:
+  enabled: true
+  trident: 20 # 1 saniye
+  riptide-trident: 100 # 5 saniye
+  firework-rocket: 10 # 0.5 saniye
+
+# --- Kötü Amaçlı Paket Kontrolü ---
+bad-packet-control:
+  enabled: true
+  # Bir oyuncunun bir saniyede gönderebileceği maksimum paket sayısı.
+  limit-per-second: 500
+  # Limiti aşan oyuncuya gönderilecek uyarı mesajı.
+  warning-message: "&cÇok fazla paket gönderiyorsun! Lütfen yavaşla."
+
+# --- Bellek (RAM) Optimizasyonu ---
+memory-optimizer:
+  enabled: true
+  # Garbage Collector'ın (Çöp Toplayıcı) ne sıklıkla çalıştırılacağı (saniye).
+  gc-interval: 1800 # 30 dakika
+  # Konsolda gösterilecek mesaj.
+  console-message: "Bellek optimizasyonu ve GC tetiklemesi tamamlandı."
+
+# --- Patlama Yöneticisi ---
+explosion-manager:
+  enabled: true
+  # Patlama seslerini ve parçacıklarını iptal eder.
+  cancel-effects: true
+  # Patlamaların bloklara hasar vermesini engeller.
+  prevent-block-damage: true
+  # Patlamaların yangın çıkarmasını engeller.
+  prevent-fire: false
+  # Bir chunk içerisinde 1 dakika içinde izin verilen maksimum TNT patlaması.
+  tnt-limit-per-chunk: 16
+  # Bir chunk içerisinde 1 dakika içinde izin verilen maksimum End Kristali patlaması.
+  end-crystal-limit-per-chunk: 8
+
+# --- Düşen Blokları Engelleme ---
+disable-falling-blocks:
+  enabled: true # Kum, çakıl gibi blokların düşmesini engeller.
+
+# --- Varlık Gizleme (Entity Culling) ---
+# Sunucu tarafında çalışır. Oyuncudan belirli bir mesafeden uzaktaki varlıkların
+# hareketlerini ve yapay zekasını durdurarak performansı artırır.
+entity-culling:
+  enabled: true
+  # Varlıkların gizleneceği/durdurulacağı mesafe (blok).
+  cull-distance: 64
+  # Bu kuraldan muaf tutulacak varlıklar.
+  cull-blacklist:
+    - "PLAYER"
+    - "ITEM_FRAME"
+    - "ARMOR_STAND"
+    - "VILLAGER"
+
+# --- Hopper Optimizasyonu ---
+# Hopper'ların çalışma mantığını optimize ederek sunucu yükünü azaltır.
+hopper-optimizer:
+  enabled: true
+  # Hopper'ların eşya transfer hızını optimize eder (Paper/forkları için daha etkilidir).
+  optimize-transfer-rate: true

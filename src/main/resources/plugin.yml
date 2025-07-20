@@ -1,0 +1,20 @@
+# plugin.yml - ATOMLAND Optimizer Eklentisi için temel yapılandırma dosyası.
+# Bu dosya, sunucunun eklentiyi tanımasını sağlar.
+
+name: ATOMLAND_Optimizer
+version: 1.0.0
+main: atom.atomland.optimizer.ATOMLAND_Optimizer
+author: Atom Gamer Arda
+description: Minecraft sunucuları için hepsi bir arada, yüksek performanslı ve özelleştirilebilir optimizasyon eklentisi.
+api-version: '1.18' # Geniş sürüm desteği için modern bir API versiyonu seçildi.
+
+# Bu eklentinin çalışması için HamsterAPI gereklidir.
+# Sunucu başlangıcında HamsterAPI yoksa bu eklenti yüklenmeyecektir.
+depend: [HamsterAPI]
+
+commands:
+  atomoptimizer:
+    description: ATOMLAND Optimizer eklenti komutları.
+    usage: /<command> [reload | stats]
+    aliases: [ao, atomo]
+    permission: atomland.optimizer.admin
