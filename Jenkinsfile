@@ -142,10 +142,8 @@ pipeline {
         stage('Publish to Modrinth') {
             when {
                 anyOf {
-                    branch 'main'
+                    branch 'main';
                     branch 'master'
-                    // Veya tag push'larında yayınlamak istiyorsanız:
-                    // tag pattern: 'v*', comparator: 'REGEXP'
                 }
             }
             steps {
@@ -193,13 +191,11 @@ pipeline {
             steps {
                 echo "Build başarıyla tamamlandı!"
                 echo "Artifact'lar Jenkins'e yüklendi."
-                when {
-                    anyOf {
-                        branch 'main'
-                        branch 'master'
+                script {
+                    if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master') {
+                        echo "Modrinth'e yayınlandı!"
                     }
                 }
-                echo "Modrinth'e yayınlandı!"
                 echo "Build zamanı: ${new Date()}"
             }
         }
