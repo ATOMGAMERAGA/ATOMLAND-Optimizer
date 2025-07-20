@@ -141,9 +141,8 @@ pipeline {
         // Aşama 4: Modrinth'e Yayınla (Sadece master/main branch için)
         stage('Publish to Modrinth') {
             when {
-                anyOf {
-                    branch 'main';
-                    branch 'master'
+                expression {
+                    return env.GIT_BRANCH == 'origin/main' || env.GIT_BRANCH == 'origin/master' || env.GIT_BRANCH == 'main' || env.GIT_BRANCH == 'master'
                 }
             }
             steps {
