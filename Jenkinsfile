@@ -191,24 +191,34 @@ pipeline {
 
                             echo "Changelog: ${escapedChangelog}"
 
-                            // Modrinth API'ye yayınla
-                            def response = sh(returnStdout: true, script: """
+                            // JSON payload'u dosyaya yaz
+                            writeFile file: 'modrinth_payload.json', text: """
+{
+    "name": "${versionNumber}",
+    "version_number": "${versionNumber}",
+    "changelog": "${escapedChangelog}",
+    "dependencies": [],
+    "game_versions": ${MINECRAFT_VERSIONS},
+    "version_type": "release",
+    "loaders": ${LOADERS},
+    "featured": false,
+    "project_id": "${MODRINTH_PROJECT_ID}"
+}
+"""
+
+                            // JSON dosyasını kontrol et
+                            sh 'cat modrinth_payload.json'
+
+                            // Modrinth API'ye yayınla - güvenli yöntem
+                            def response = sh(returnStdout: true, script: '''
                                 curl -s -w "HTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
-                                    -H 'Authorization: ${MODRINTH_API_TOKEN}' \\
-                                    -H 'Content-Type: multipart/form-data' \\
-                                    -F 'data={
-                                        "name": "${versionNumber}",
-                                        "version_number": "${versionNumber}",
-                                        "changelog": "${escapedChangelog}",
-                                        "dependencies": [],
-                                        "game_versions": ${MINECRAFT_VERSIONS},
-                                        "version_type": "release",
-                                        "loaders": ${LOADERS},
-                                        "featured": false,
-                                        "project_id": "${MODRINTH_PROJECT_ID}"
-                                    }' \\
-                                    -F 'file=@${JAR_FILE_PATH};filename=${fileName}'
-                            """).trim()
+                                    -H "Authorization: ''' + env.MODRINTH_API_TOKEN + '''" \\
+                                    -F "data=@modrinth_payload.json;type=application/json" \\
+                                    -F "file=@''' + env.JAR_FILE_PATH + ''';filename=''' + fileName + '''"
+                            ''').trim()
+
+                            // Geçici dosyayı temizle
+                            sh 'rm -f modrinth_payload.json'
 
                             // HTTP status kodunu kontrol et
                             def httpStatus = response.tokenize("HTTPSTATUS:")[1]
