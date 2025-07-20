@@ -194,7 +194,11 @@ pipeline {
 
                             echo "Changelog: ${escapedChangelog}"
 
-                            // JSON payload'u oluştur
+                            // Dosya var mı kontrol et
+                            sh "ls -la ${env.JAR_FILE_PATH}"
+                            sh "file ${env.JAR_FILE_PATH}"
+
+                            // JSON payload'u oluştur - file_parts ile
                             def jsonPayload = """
 {
     "name": "${versionNumber}",
@@ -205,28 +209,26 @@ pipeline {
     "version_type": "release",
     "loaders": ${LOADERS},
     "featured": false,
-    "project_id": "${MODRINTH_PROJECT_ID}"
+    "project_id": "${MODRINTH_PROJECT_ID}",
+    "file_parts": ["${fileName}"]
 }
 """
                             writeFile file: 'modrinth_payload.json', text: jsonPayload
 
                             // JSON dosyasını kontrol et
+                            echo "Modrinth payload JSON içeriği:"
                             sh 'cat modrinth_payload.json'
 
-                            // İlk olarak dosya var mı kontrol et
-                            sh "ls -la ${env.JAR_FILE_PATH}"
-                            sh "file ${env.JAR_FILE_PATH}"
-
-                            // Modrinth API'ye yayınla - daha detaylı hata ayıklama
-                            def response = sh(returnStdout: true, script: '''
-                                curl -v -w "\\nHTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
-                                    -H "Authorization: ''' + env.MODRINTH_API_TOKEN + '''" \\
+                            // Modrinth API'ye yayınla - multipart/form-data ile
+                            def response = sh(returnStdout: true, script: """
+                                curl -s -w "\\nHTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
+                                    -H "Authorization: ${env.MODRINTH_API_TOKEN}" \\
                                     -H "User-Agent: Jenkins/ATOMLAND-Optimizer" \\
                                     -F "data=@modrinth_payload.json;type=application/json" \\
-                                    -F "file=@''' + env.JAR_FILE_PATH + '''"
-                            ''').trim()
+                                    -F "${fileName}=@${env.JAR_FILE_PATH};type=application/java-archive"
+                            """).trim()
 
-                            echo "Full curl response:"
+                            echo "Modrinth API Response:"
                             echo response
 
                             // HTTP status kodunu kontrol et
@@ -240,32 +242,31 @@ pipeline {
 
                             if (httpStatus.startsWith("2")) {
                                 echo "✅ Modrinth'e başarıyla yayınlandı!"
-                            } else {
-                                // Alternatif API çağrısı deneyelim
-                                echo "⚠️ İlk deneme başarısız, alternatif yöntem deneniyor..."
-
-                                // JSON içeriğini değişken olarak sakla (dosyayı silmeden önce)
-                                def jsonContent = jsonPayload.replaceAll('\n', '').replaceAll('\\s+', ' ').trim()
-
-                                def alternativeResponse = sh(returnStdout: true, script: '''
-                                    curl -X POST 'https://api.modrinth.com/v2/version' \\
-                                        -H "Authorization: ''' + env.MODRINTH_API_TOKEN + '''" \\
-                                        -H "User-Agent: Jenkins/ATOMLAND-Optimizer" \\
-                                        -H "Content-Type: multipart/form-data" \\
-                                        --form 'data=''' + jsonContent + ''';type=application/json' \\
-                                        --form 'file=@''' + env.JAR_FILE_PATH + ''';filename=''' + fileName + ''';type=application/java-archive'
-                                ''').trim()
-
-                                echo "Alternative response: ${alternativeResponse}"
-
-                                if (alternativeResponse.contains('"id"')) {
-                                    echo "✅ Alternatif yöntemle Modrinth'e başarıyla yayınlandı!"
-                                } else {
-                                    error "❌ Modrinth yayınlama hatası! HTTP Status: ${httpStatus}, Response: ${responseBody}, Alternative: ${alternativeResponse}"
+                                if (responseBody.contains('"id"')) {
+                                    // Version ID'yi çıkar ve göster
+                                    def versionId = responseBody.replaceAll(/.*"id":"([^"]+)".*/, '$1')
+                                    echo "📦 Version ID: ${versionId}"
+                                    echo "🔗 Modrinth URL: https://modrinth.com/mod/${MODRINTH_PROJECT_ID}/version/${versionId}"
                                 }
+                            } else {
+                                // Hata durumunda daha detaylı bilgi ver
+                                echo "❌ Modrinth yayınlama hatası!"
+                                echo "HTTP Status: ${httpStatus}"
+                                echo "Response: ${responseBody}"
+
+                                // Yaygın hataları kontrol et ve çözüm öner
+                                if (responseBody.contains("missing field")) {
+                                    echo "💡 Eksik field hatası - JSON payload'unu kontrol edin"
+                                } else if (responseBody.contains("unauthorized")) {
+                                    echo "💡 Yetkilendirme hatası - MODRINTH_TOKEN'ı kontrol edin"
+                                } else if (responseBody.contains("duplicate")) {
+                                    echo "💡 Bu versiyon zaten var - version_number'ı kontrol edin"
+                                }
+
+                                error "Modrinth yayınlama başarısız! Status: ${httpStatus}"
                             }
 
-                            // Geçici dosyayı temizle (en son yapılacak işlem)
+                            // Geçici dosyayı temizle
                             sh 'rm -f modrinth_payload.json'
                         }
                     }
@@ -296,6 +297,7 @@ pipeline {
             sh '''
                 find . -name "*.tmp" -delete 2>/dev/null || true
                 find . -name "jdk.tar.gz" -delete 2>/dev/null || true
+                find . -name "modrinth_payload.json" -delete 2>/dev/null || true
             '''
         }
         success {
