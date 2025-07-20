@@ -11,10 +11,10 @@ pipeline {
         JDK_DIR_NAME = 'jdk-21'
     }
 
-    // 3. Tetikleyiciler devre dışı - Manuel build içinn
-    // triggers {
-    //     pollSCM('* * * * *')
-    // }
+    // 3. Tetikleyiciler - Otomatik build
+    triggers {
+        pollSCM('H/2 * * * *') // Her 2 dakikada bir kontrol eder
+    }
 
     // 4. Pipeline Seçenekleri
     options {
