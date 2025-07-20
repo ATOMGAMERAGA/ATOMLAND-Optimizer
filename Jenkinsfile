@@ -11,9 +11,12 @@ pipeline {
         JDK_DIR_NAME = 'jdk-21'
     }
 
-    // 3. Tetikleyiciler - Otomatik build
+    // 3. Tetikleyiciler - GitHub webhook ve SCM polling
     triggers {
-        pollSCM('H/2 * * * *') // Her 2 dakikada bir kontrol eder
+        // GitHub webhook tetikleyicisi (ana tetikleyici)
+        githubPush()
+        // Yedek olarak SCM polling (webhook çalışmadığı durumlar için)
+        pollSCM('H/5 * * * *') // Her 5 dakikada bir kontrol eder
     }
 
     // 4. Pipeline Seçenekleri
@@ -24,6 +27,8 @@ pipeline {
         disableConcurrentBuilds()
         // Zaman aşımı ayarla
         timeout(time: 30, unit: 'MINUTES')
+        // GitHub durumunu güncelle
+        githubProjectProperty(projectUrlStr: 'https://github.com/ATOMGAMERAGA/ATOMLAND-Optimizer')
     }
 
     // 5. Aşamalar
@@ -37,7 +42,9 @@ pipeline {
                     // Son commit bilgilerini göster
                     def commitId = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
                     def commitMessage = sh(returnStdout: true, script: 'git log -1 --pretty=%B').trim()
+                    def branchName = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
                     echo "Build tetikleyen commit: ${commitId}"
+                    echo "Branch: ${branchName}"
                     echo "Commit mesajı: ${commitMessage}"
                 }
             }
@@ -136,10 +143,30 @@ pipeline {
         success {
             echo '✅ Build başarıyla tamamlandı!'
             echo "Commit ${env.GIT_COMMIT} başarıyla build edildi."
+            // GitHub'a success status gönder (isteğe bağlı)
+            script {
+                try {
+                    githubNotify context: 'continuous-integration/jenkins',
+                              description: 'Build successful',
+                              status: 'SUCCESS'
+                } catch (Exception e) {
+                    echo "GitHub status gönderilemedi: ${e.getMessage()}"
+                }
+            }
         }
         failure {
             echo '❌ Build başarısız oldu!'
             echo "Hata detayları için build log'larını kontrol edin."
+            // GitHub'a failure status gönder (isteğe bağlı)
+            script {
+                try {
+                    githubNotify context: 'continuous-integration/jenkins',
+                              description: 'Build failed',
+                              status: 'FAILURE'
+                } catch (Exception e) {
+                    echo "GitHub status gönderilemedi: ${e.getMessage()}"
+                }
+            }
         }
         changed {
             echo "Build durumu değişti: ${currentBuild.currentResult}"
