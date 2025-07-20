@@ -2,7 +2,7 @@
 # Bu dosya, sunucunun eklentiyi tanımasını sağlar.
 
 name: ATOMLAND_Optimizer
-version: 1.0.0
+version: 2.1.2
 main: atom.atomland.optimizer.ATOMLAND_Optimizer
 author: Atom Gamer Arda
 description: Minecraft sunucuları için hepsi bir arada, yüksek performanslı ve özelleştirilebilir optimizasyon eklentisi.
