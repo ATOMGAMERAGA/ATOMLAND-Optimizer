@@ -209,28 +209,59 @@ pipeline {
                             // JSON dosyasını kontrol et
                             sh 'cat modrinth_payload.json'
 
-                            // Modrinth API'ye yayınla - güvenli yöntem
+                            // İlk olarak dosya var mı kontrol et
+                            sh "ls -la ${env.JAR_FILE_PATH}"
+                            sh "file ${env.JAR_FILE_PATH}"
+
+                            // Modrinth API'ye yayınla - daha detaylı hata ayıklama
                             def response = sh(returnStdout: true, script: '''
-                                curl -s -w "HTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
+                                curl -v -w "\\nHTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
                                     -H "Authorization: ''' + env.MODRINTH_API_TOKEN + '''" \\
+                                    -H "User-Agent: Jenkins/ATOMLAND-Optimizer" \\
                                     -F "data=@modrinth_payload.json;type=application/json" \\
-                                    -F "file=@''' + env.JAR_FILE_PATH + ''';filename=''' + fileName + '''"
+                                    -F "file=@''' + env.JAR_FILE_PATH + '''"
                             ''').trim()
+
+                            echo "Full curl response:"
+                            echo response
 
                             // Geçici dosyayı temizle
                             sh 'rm -f modrinth_payload.json'
 
                             // HTTP status kodunu kontrol et
-                            def httpStatus = response.tokenize("HTTPSTATUS:")[1]
-                            def responseBody = response.tokenize("HTTPSTATUS:")[0]
+                            def lines = response.split('\n')
+                            def httpStatusLine = lines.find { it.startsWith('HTTPSTATUS:') }
+                            def httpStatus = httpStatusLine ? httpStatusLine.split(':')[1] : 'unknown'
+                            def responseBody = response.replaceAll(/.*HTTPSTATUS:\d+/, '').trim()
 
                             echo "HTTP Status: ${httpStatus}"
-                            echo "Response: ${responseBody}"
+                            echo "Response Body: ${responseBody}"
 
                             if (httpStatus.startsWith("2")) {
                                 echo "✅ Modrinth'e başarıyla yayınlandı!"
                             } else {
-                                error "❌ Modrinth yayınlama hatası! HTTP Status: ${httpStatus}, Response: ${responseBody}"
+                                // Alternatif API çağrısı deneyelim
+                                echo "⚠️ İlk deneme başarısız, alternatif yöntem deneniyor..."
+
+                                // JSON'u base64 encode edelim
+                                def jsonContent = readFile('modrinth_payload.json')
+
+                                def alternativeResponse = sh(returnStdout: true, script: '''
+                                    curl -X POST 'https://api.modrinth.com/v2/version' \\
+                                        -H "Authorization: ''' + env.MODRINTH_API_TOKEN + '''" \\
+                                        -H "User-Agent: Jenkins/ATOMLAND-Optimizer" \\
+                                        -H "Content-Type: multipart/form-data" \\
+                                        --form 'data=''' + jsonContent.replaceAll('\n', '').replaceAll(' ', '') + ''';type=application/json' \\
+                                        --form 'file=@''' + env.JAR_FILE_PATH + ''';filename=''' + fileName + ''';type=application/java-archive'
+                                ''').trim()
+
+                                echo "Alternative response: ${alternativeResponse}"
+
+                                if (alternativeResponse.contains('"id"')) {
+                                    echo "✅ Alternatif yöntemle Modrinth'e başarıyla yayınlandı!"
+                                } else {
+                                    error "❌ Modrinth yayınlama hatası! HTTP Status: ${httpStatus}, Response: ${responseBody}, Alternative: ${alternativeResponse}"
+                                }
                             }
                         }
                     }
