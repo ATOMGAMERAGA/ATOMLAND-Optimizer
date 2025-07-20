@@ -55,6 +55,7 @@ pipeline {
                     // Global değişkenleri ayarla
                     env.COMMIT_MESSAGE = commitMessage
                     env.BRANCH_NAME = branchName
+                    env.GIT_COMMIT = commitId
                 }
             }
         }
@@ -88,20 +89,37 @@ pipeline {
                     def jdkHome = "${env.WORKSPACE}/${JDK_DIR_NAME}"
                     def mavenHome = tool MAVEN_TOOL_NAME
 
-                    withEnv(["JAVA_HOME=${jdkHome}", "PATH+MAVEN=${mavenHome}/bin:${jdkHome}/bin"]) {
+                    // PATH'i doğru şekilde ayarla
+                    withEnv([
+                        "JAVA_HOME=${jdkHome}",
+                        "PATH=${mavenHome}/bin:${jdkHome}/bin:${env.PATH}",
+                        "M2_HOME=${mavenHome}"
+                    ]) {
                         echo "Kullanılan Java sürümü kontrol ediliyor..."
                         sh 'java -version'
                         echo "Kullanılan Maven sürümü kontrol ediliyor..."
                         sh 'mvn -v'
+
+                        // Maven komutlarını ayrı ayrı çalıştır
+                        echo "Proje temizleniyor..."
+                        sh 'mvn clean'
+
                         echo "Proje Maven ile derleniyor... Build Numarası: ${env.BUILD_NUMBER}"
                         echo "Git Branch: ${env.GIT_BRANCH}"
-                        sh 'mvn clean package -DskipTests=false'
+                        sh 'mvn package -DskipTests=false'
 
                         // JAR dosyasının tam yolunu bul ve global değişkene kaydet
                         def jarFile = sh(returnStdout: true, script: 'find target -name "*.jar" -type f | head -1').trim()
                         if (jarFile) {
                             env.JAR_FILE_PATH = jarFile
                             echo "JAR dosyası bulundu: ${jarFile}"
+
+                            // JAR dosyasının boyutunu ve hash'ini göster
+                            sh """
+                                echo "JAR dosya bilgileri:"
+                                ls -lh ${jarFile}
+                                echo "MD5 Hash: \$(md5sum ${jarFile} | cut -d' ' -f1)"
+                            """
                         } else {
                             error "JAR dosyası bulunamadı!"
                         }
@@ -149,37 +167,62 @@ pipeline {
                 echo 'Modrinth\'e yayınlanıyor...'
                 withCredentials([string(credentialsId: 'MODRINTH_TOKEN', variable: 'MODRINTH_API_TOKEN')]) {
                     script {
-                        // pom.xml'den versiyonu oku
-                        def pomVersion = sh(returnStdout: true, script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout').trim()
-                        def versionNumber = "${pomVersion}"
-                        def fileName = sh(returnStdout: true, script: 'basename ${JAR_FILE_PATH}').trim()
+                        def jdkHome = "${env.WORKSPACE}/${JDK_DIR_NAME}"
+                        def mavenHome = tool MAVEN_TOOL_NAME
 
-                        echo "Yayınlanacak versiyon: ${versionNumber}"
-                        echo "Dosya adı: ${fileName}"
+                        // Maven'ı PATH'e ekleyerek versiyonu oku
+                        withEnv([
+                            "JAVA_HOME=${jdkHome}",
+                            "PATH=${mavenHome}/bin:${jdkHome}/bin:${env.PATH}",
+                            "M2_HOME=${mavenHome}"
+                        ]) {
+                            // pom.xml'den versiyonu oku
+                            def pomVersion = sh(returnStdout: true, script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout').trim()
+                            def versionNumber = "${pomVersion}"
+                            def fileName = sh(returnStdout: true, script: 'basename ${JAR_FILE_PATH}').trim()
 
-                        // Changelog'u commit mesajından oluştur
-                        def changelog = env.COMMIT_MESSAGE ?: "Yeni sürüm: ${versionNumber}"
+                            echo "Yayınlanacak versiyon: ${versionNumber}"
+                            echo "Dosya adı: ${fileName}"
 
-                        // Modrinth API'ye yayınla
-                        sh """
-                            curl -X POST 'https://api.modrinth.com/v2/version' \\
-                                -H 'Authorization: ${MODRINTH_API_TOKEN}' \\
-                                -H 'Content-Type: multipart/form-data' \\
-                                -F 'data={
-                                    "name": "${versionNumber}",
-                                    "version_number": "${versionNumber}",
-                                    "changelog": "${changelog}",
-                                    "dependencies": [],
-                                    "game_versions": ${MINECRAFT_VERSIONS},
-                                    "version_type": "release",
-                                    "loaders": ${LOADERS},
-                                    "featured": false,
-                                    "project_id": "${MODRINTH_PROJECT_ID}"
-                                }' \\
-                                -F 'file=@${JAR_FILE_PATH};filename=${fileName}'
-                        """
+                            // Changelog'u commit mesajından oluştur
+                            def changelog = env.COMMIT_MESSAGE ?: "Yeni sürüm: ${versionNumber}"
+                            // JSON için özel karakterleri escape et
+                            def escapedChangelog = changelog.replaceAll('"', '\\\\"').replaceAll('\\n', '\\\\n').replaceAll('\\r', '')
 
-                        echo "✅ Modrinth'e başarıyla yayınlandı!"
+                            echo "Changelog: ${escapedChangelog}"
+
+                            // Modrinth API'ye yayınla
+                            def response = sh(returnStdout: true, script: """
+                                curl -s -w "HTTPSTATUS:%{http_code}" -X POST 'https://api.modrinth.com/v2/version' \\
+                                    -H 'Authorization: ${MODRINTH_API_TOKEN}' \\
+                                    -H 'Content-Type: multipart/form-data' \\
+                                    -F 'data={
+                                        "name": "${versionNumber}",
+                                        "version_number": "${versionNumber}",
+                                        "changelog": "${escapedChangelog}",
+                                        "dependencies": [],
+                                        "game_versions": ${MINECRAFT_VERSIONS},
+                                        "version_type": "release",
+                                        "loaders": ${LOADERS},
+                                        "featured": false,
+                                        "project_id": "${MODRINTH_PROJECT_ID}"
+                                    }' \\
+                                    -F 'file=@${JAR_FILE_PATH};filename=${fileName}'
+                            """).trim()
+
+                            // HTTP status kodunu kontrol et
+                            def httpStatus = response.tokenize("HTTPSTATUS:")[1]
+                            def responseBody = response.tokenize("HTTPSTATUS:")[0]
+
+                            echo "HTTP Status: ${httpStatus}"
+                            echo "Response: ${responseBody}"
+
+                            if (httpStatus.startsWith("2")) {
+                                echo "✅ Modrinth'e başarıyla yayınlandı!"
+                            } else {
+                                error "❌ Modrinth yayınlama hatası! HTTP Status: ${httpStatus}, Response: ${responseBody}"
+                            }
+                        }
                     }
                 }
             }
@@ -216,9 +259,16 @@ pipeline {
             // GitHub'a success status gönder (isteğe bağlı)
             script {
                 try {
-                    githubNotify context: 'continuous-integration/jenkins',
-                              description: 'Build successful',
-                              status: 'SUCCESS'
+                    if (env.GIT_COMMIT && env.GIT_URL) {
+                        // Git bilgilerini manuel olarak çıkar
+                        def repoInfo = env.GIT_URL.replaceAll(/.*\/([^\/]+\/[^\/]+)\.git.*/, '$1')
+                        githubNotify account: repoInfo.split('/')[0],
+                                    repo: repoInfo.split('/')[1],
+                                    sha: env.GIT_COMMIT,
+                                    context: 'continuous-integration/jenkins',
+                                    description: 'Build successful',
+                                    status: 'SUCCESS'
+                    }
                 } catch (Exception e) {
                     echo "GitHub status gönderilemedi: ${e.getMessage()}"
                 }
@@ -230,9 +280,15 @@ pipeline {
             // GitHub'a failure status gönder (isteğe bağlı)
             script {
                 try {
-                    githubNotify context: 'continuous-integration/jenkins',
-                              description: 'Build failed',
-                              status: 'FAILURE'
+                    if (env.GIT_COMMIT && env.GIT_URL) {
+                        def repoInfo = env.GIT_URL.replaceAll(/.*\/([^\/]+\/[^\/]+)\.git.*/, '$1')
+                        githubNotify account: repoInfo.split('/')[0],
+                                    repo: repoInfo.split('/')[1],
+                                    sha: env.GIT_COMMIT,
+                                    context: 'continuous-integration/jenkins',
+                                    description: 'Build failed',
+                                    status: 'FAILURE'
+                    }
                 } catch (Exception e) {
                     echo "GitHub status gönderilemedi: ${e.getMessage()}"
                 }
