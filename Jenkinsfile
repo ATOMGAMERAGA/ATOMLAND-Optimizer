@@ -1,5 +1,6 @@
 // Jenkins Pipeline Script for ATOMLAND Optimizer
 // GitHub webhook ile otomatik build tetikleme + Modrinth yayınlama
+// Made by Atom Gamer Arda / Atom Gamer Arda Tarafından Yapıldı
 pipeline {
     // 1. Agent Ayarı
     agent any

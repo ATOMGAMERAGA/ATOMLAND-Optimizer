@@ -12,6 +12,7 @@ import org.bukkit.*;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
@@ -20,6 +21,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.entity.*;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -28,35 +30,44 @@ import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.StringUtil;
 
+import java.lang.management.ManagementFactory;
+import java.text.DecimalFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * ATOMLAND Optimizer
  *
  * @author Atom Gamer Arda
- * @version 2.1.0
+ * @version 3.0.0
  *
  * A comprehensive, all-in-one, high-performance, and customizable optimization plugin for Minecraft servers.
- * Switched back to ProtocolLib for stable packet handling.
+ * This version introduces entity culling, an advanced command system, and hopper optimization for maximum performance.
  */
-public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandExecutor {
+public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
 
-    // --- Plugin Fields ---
+    // --- Plugin Singleton ---
     private static ATOMLAND_Optimizer instance;
+
+    // --- Core Components ---
     private FileConfiguration config;
     private ProtocolManager protocolManager;
+    private static final DecimalFormat twoDecimals = new DecimalFormat("#.##");
 
     // --- Configuration Cached Values ---
     private String prefix;
+    // Entity Optimization
     private boolean entityOptimizationEnabled;
     private boolean cancelMonsterTargeting;
     private boolean preventMonsterInfighting;
-    private boolean cancelNaturalSpawning;
+    // FPS Helper
     private boolean fpsHelperEnabled;
     private boolean blockHeavyParticles;
     private List<String> particleBlacklist;
+    // Smart Cleaner
     private boolean itemCleanerEnabled;
     private int itemCleanerInterval;
     private List<Integer> itemCleanerWarnings;
@@ -66,48 +77,55 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     private boolean ignoreNamedMobs;
     private boolean ignoreTamedMobs;
     private boolean ignoreInLoveMobs;
+    // Performance Monitor
     private boolean perfMonitorEnabled;
     private double tpsThreshold;
     private double msptThreshold;
     private boolean gcOnLowTps;
     private boolean clearChunksOnLowTps;
     private boolean optimizeAiOnLowTps;
+    // Redstone Optimizer
     private boolean redstoneOptimizerEnabled;
-    private boolean antiLagCircuitEnabled;
-    private int redstoneUpdateLimit;
-    private boolean redstoneThrottlingEnabled;
     private long redstoneMinDelay;
-    private boolean chunkOptimizerEnabled;
+    // Chunk Optimizer
     private boolean unusedChunkCleanerEnabled;
     private int chunkCleanerInterval;
     private long minChunkIdleTime;
     private boolean fastChunkLoaderEnabled;
     private int preloadRadius;
+    // Custom Mob AI
     private boolean customMobAiEnabled;
     private int disableAiDistance;
     private List<String> mobAiBlacklist;
+    // Item Cooldowns
     private boolean itemCooldownsEnabled;
     private int tridentCooldown;
     private int riptideCooldown;
     private int fireworkCooldown;
+    // Bad Packet Control
     private boolean badPacketControlEnabled;
     private int packetLimit;
     private String packetWarningMsg;
+    // Memory Optimizer
     private boolean memoryOptimizerEnabled;
     private int gcInterval;
     private String gcConsoleMsg;
+    // Explosion Manager
     private boolean explosionManagerEnabled;
     private boolean cancelExplosionEffects;
     private boolean preventExplosionBlockDamage;
     private boolean preventExplosionFire;
     private int tntLimitPerChunk;
     private int endCrystalLimitPerChunk;
+    // Misc
     private boolean disableFallingBlocks;
+    // NEW: Entity Culling
     private boolean entityCullingEnabled;
     private int cullDistance;
     private List<String> cullBlacklist;
+    // NEW: Hopper Optimizer
     private boolean hopperOptimizerEnabled;
-    private boolean optimizeHopperRate;
+    private int hopperCheckInterval;
 
 
     // --- Dynamic Data ---
@@ -116,14 +134,15 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     private final Map<Chunk, Long> chunkLastActivity = new ConcurrentHashMap<>();
     private final Map<Chunk, Integer> tntExplosions = new ConcurrentHashMap<>();
     private final Map<Chunk, Integer> crystalExplosions = new ConcurrentHashMap<>();
+    private final Map<Location, Long> hopperCooldowns = new ConcurrentHashMap<>();
 
-    // --- Getters ---
+
+    /**
+     * Gets the plugin instance.
+     * @return The singleton instance of this plugin.
+     */
     public static ATOMLAND_Optimizer getInstance() {
         return instance;
-    }
-
-    public String getPrefix() {
-        return prefix;
     }
 
     // --- Plugin Lifecycle ---
@@ -131,32 +150,24 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     public void onEnable() {
         instance = this;
 
-        // Check for ProtocolLib dependency
-        if (getServer().getPluginManager().getPlugin("ProtocolLib") == null) {
-            getLogger().severe("ProtocolLib bulunamadı! ATOMLAND Optimizer devre dışı bırakılıyor.");
+        if (!checkDependencies()) {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+
         protocolManager = ProtocolLibrary.getProtocolManager();
 
-        // Load configuration
         saveDefaultConfig();
         config = getConfig();
         loadConfigValues();
 
-        // Register listeners and commands
-        getServer().getPluginManager().registerEvents(this, this);
-        getCommand("atomoptimizer").setExecutor(this);
-
-        // Start tasks
+        registerListenersAndCommands();
         startTasks();
-
-        // Register packet listeners using ProtocolLib
         registerPacketListeners();
 
         getLogger().info("-------------------------------------------");
-        getLogger().info("ATOMLAND Optimizer by Atom Gamer Arda");
-        getLogger().info("Başarıyla etkinleştirildi! (ProtocolLib Version)");
+        getLogger().info("ATOMLAND Optimizer v3.0.0 by Atom Gamer Arda");
+        getLogger().info("Başarıyla etkinleştirildi! Gelişmiş özellikler aktif.");
         getLogger().info("-------------------------------------------");
     }
 
@@ -169,18 +180,31 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         getLogger().info("ATOMLAND Optimizer devre dışı bırakıldı.");
     }
 
-    // --- Configuration Loading ---
+    /**
+     * Checks for required plugin dependencies.
+     * @return True if all dependencies are found, otherwise false.
+     */
+    private boolean checkDependencies() {
+        if (getServer().getPluginManager().getPlugin("ProtocolLib") == null) {
+            getLogger().severe("ProtocolLib bulunamadı! ATOMLAND Optimizer devre dışı bırakılıyor.");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Loads all values from the config.yml into memory.
+     */
     private void loadConfigValues() {
-        prefix = ChatColor.translateAlternateColorCodes('&', config.getString("prefix", "&8[&6ATOMLAND&bOptimizer&8] &r"));
+        prefix = colorize(config.getString("prefix", "&8[&6ATOMLAND&bOptimizer&8] &r"));
 
         entityOptimizationEnabled = config.getBoolean("entity-optimization.enabled", true);
         cancelMonsterTargeting = config.getBoolean("entity-optimization.cancel-monster-targeting", true);
         preventMonsterInfighting = config.getBoolean("entity-optimization.prevent-monster-infighting", true);
-        cancelNaturalSpawning = config.getBoolean("entity-optimization.cancel-natural-spawning", true);
 
         fpsHelperEnabled = config.getBoolean("fps-helper.enabled", true);
-        blockHeavyParticles = config.getBoolean("fps-helper.packet-filtering.block-heavy-particles", true);
-        particleBlacklist = config.getStringList("fps-helper.packet-filtering.particle-blacklist");
+        blockHeavyParticles = config.getBoolean("fps-helper.block-heavy-particles", true);
+        particleBlacklist = config.getStringList("fps-helper.particle-blacklist");
 
         itemCleanerEnabled = config.getBoolean("smart-cleaner.item-cleaner.enabled", true);
         itemCleanerInterval = config.getInt("smart-cleaner.item-cleaner.interval", 300);
@@ -201,21 +225,17 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         optimizeAiOnLowTps = config.getBoolean("performance-monitor.actions.optimize-mobs-ai", true);
 
         redstoneOptimizerEnabled = config.getBoolean("redstone-optimizer.enabled", true);
-        antiLagCircuitEnabled = config.getBoolean("redstone-optimizer.anti-lag-circuit.enabled", true);
-        redstoneUpdateLimit = config.getInt("redstone-optimizer.anti-lag-circuit.updates-per-second-limit", 20);
-        redstoneThrottlingEnabled = config.getBoolean("redstone-optimizer.update-throttling.enabled", true);
-        redstoneMinDelay = config.getLong("redstone-optimizer.update-throttling.min-delay-ms", 50);
+        redstoneMinDelay = config.getLong("redstone-optimizer.update-throttling-ms", 50);
 
-        chunkOptimizerEnabled = config.getBoolean("chunk-optimizer.enabled", true);
         unusedChunkCleanerEnabled = config.getBoolean("chunk-optimizer.unused-chunk-cleaner.enabled", true);
-        chunkCleanerInterval = config.getInt("chunk-optimizer.unused-chunk-cleaner.interval", 900);
-        minChunkIdleTime = config.getLong("chunk-optimizer.unused-chunk-cleaner.min-idle-time", 300) * 1000L;
+        chunkCleanerInterval = config.getInt("chunk-optimizer.unused-chunk-cleaner.interval-seconds", 900);
+        minChunkIdleTime = config.getLong("chunk-optimizer.unused-chunk-cleaner.min-idle-seconds", 300) * 1000L;
         fastChunkLoaderEnabled = config.getBoolean("chunk-optimizer.fast-chunk-loader.enabled", true);
         preloadRadius = config.getInt("chunk-optimizer.fast-chunk-loader.preload-radius", 2);
 
         customMobAiEnabled = config.getBoolean("custom-mob-ai.enabled", true);
-        disableAiDistance = config.getInt("custom-mob-ai.disable-ai-if-player-is-further-than", 48);
-        mobAiBlacklist = config.getStringList("custom-mob-ai.ai-blacklist");
+        disableAiDistance = config.getInt("custom-mob-ai.disable-ai-distance", 48);
+        mobAiBlacklist = config.getStringList("custom-mob-ai.ai-blacklist").stream().map(String::toUpperCase).collect(Collectors.toList());
 
         itemCooldownsEnabled = config.getBoolean("item-cooldowns.enabled", true);
         tridentCooldown = config.getInt("item-cooldowns.trident", 20);
@@ -224,11 +244,11 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
 
         badPacketControlEnabled = config.getBoolean("bad-packet-control.enabled", true);
         packetLimit = config.getInt("bad-packet-control.limit-per-second", 500);
-        packetWarningMsg = ChatColor.translateAlternateColorCodes('&', config.getString("bad-packet-control.warning-message"));
+        packetWarningMsg = colorize(config.getString("bad-packet-control.warning-message"));
 
         memoryOptimizerEnabled = config.getBoolean("memory-optimizer.enabled", true);
-        gcInterval = config.getInt("memory-optimizer.gc-interval", 1800);
-        gcConsoleMsg = ChatColor.translateAlternateColorCodes('&', config.getString("memory-optimizer.console-message"));
+        gcInterval = config.getInt("memory-optimizer.gc-interval-seconds", 1800);
+        gcConsoleMsg = colorize(config.getString("memory-optimizer.console-message"));
 
         explosionManagerEnabled = config.getBoolean("explosion-manager.enabled", true);
         cancelExplosionEffects = config.getBoolean("explosion-manager.cancel-effects", true);
@@ -237,38 +257,28 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         tntLimitPerChunk = config.getInt("explosion-manager.tnt-limit-per-chunk", 16);
         endCrystalLimitPerChunk = config.getInt("explosion-manager.end-crystal-limit-per-chunk", 8);
 
-        disableFallingBlocks = config.getBoolean("disable-falling-blocks.enabled", true);
+        disableFallingBlocks = config.getBoolean("disable-falling-blocks", true);
 
         entityCullingEnabled = config.getBoolean("entity-culling.enabled", true);
         cullDistance = config.getInt("entity-culling.cull-distance", 64);
-        cullBlacklist = config.getStringList("entity-culling.cull-blacklist");
+        cullBlacklist = config.getStringList("entity-culling.cull-blacklist").stream().map(String::toUpperCase).collect(Collectors.toList());
 
         hopperOptimizerEnabled = config.getBoolean("hopper-optimizer.enabled", true);
-        optimizeHopperRate = config.getBoolean("hopper-optimizer.optimize-transfer-rate", true);
+        hopperCheckInterval = config.getInt("hopper-optimizer.check-interval-ticks", 8);
     }
 
-    // --- Command Handling ---
-    @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("atomland.optimizer.admin")) {
-            sender.sendMessage(prefix + ChatColor.RED + "Bu komutu kullanma yetkiniz yok.");
-            return true;
-        }
-
-        if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            reloadConfig();
-            loadConfigValues();
-            getServer().getScheduler().cancelTasks(this);
-            startTasks();
-            sender.sendMessage(prefix + ChatColor.GREEN + "Eklenti yapılandırması başarıyla yeniden yüklendi!");
-            return true;
-        }
-
-        sender.sendMessage(prefix + ChatColor.YELLOW + "Kullanım: /" + label + " reload");
-        return true;
+    /**
+     * Registers all plugin event listeners and commands.
+     */
+    private void registerListenersAndCommands() {
+        getServer().getPluginManager().registerEvents(this, this);
+        getCommand("atomoptimizer").setExecutor(this);
+        getCommand("atomoptimizer").setTabCompleter(this);
     }
 
-    // --- Task Scheduling ---
+    /**
+     * Starts all scheduled tasks for the plugin.
+     */
     private void startTasks() {
         if (itemCleanerEnabled) new SmartItemClearerTask().runTaskTimerAsynchronously(this, 20L, 20L);
         if (mobCleanerEnabled) new SmartMobCleanerTask().runTaskTimerAsynchronously(this, 200L, mobCleanerInterval * 20L);
@@ -277,148 +287,233 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         if (memoryOptimizerEnabled) new MemoryOptimizerTask().runTaskTimer(this, gcInterval * 20L, gcInterval * 20L);
         if (explosionManagerEnabled) new ExplosionLimiterResetTask().runTaskTimer(this, 1200L, 1200L);
         if (unusedChunkCleanerEnabled) new UnusedChunkCleanerTask().runTaskTimerAsynchronously(this, 600L, chunkCleanerInterval * 20L);
-        if (customMobAiEnabled || entityCullingEnabled) new CustomMobAITask().runTaskTimerAsynchronously(this, 40L, 40L);
+        if (customMobAiEnabled || entityCullingEnabled) new EntityProcessingTask().runTaskTimer(this, 40L, 40L);
     }
 
-    // --- Packet Listener Registration with ProtocolLib ---
+    /**
+     * Registers all packet listeners using ProtocolLib.
+     */
     private void registerPacketListeners() {
-        if (!fpsHelperEnabled && !badPacketControlEnabled && !explosionManagerEnabled) return;
+        if (fpsHelperEnabled || explosionManagerEnabled) {
+            protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL,
+                    PacketType.Play.Server.WORLD_PARTICLES,
+                    PacketType.Play.Server.EXPLOSION) {
+                @Override
+                public void onPacketSending(PacketEvent event) {
+                    if (event.isCancelled()) return;
+                    PacketType type = event.getPacketType();
 
-        protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL,
-                PacketType.Play.Server.WORLD_PARTICLES,
-                PacketType.Play.Server.EXPLOSION) {
-            @Override
-            public void onPacketSending(PacketEvent event) {
-                if (event.isCancelled()) return;
-
-                PacketType type = event.getPacketType();
-                PacketContainer packet = event.getPacket();
-
-                if (fpsHelperEnabled && blockHeavyParticles && type == PacketType.Play.Server.WORLD_PARTICLES) {
-                    try {
-                        WrappedParticle wrappedParticle = packet.getNewParticles().read(0);
-                        String particleName = wrappedParticle.getParticle().name();
-                        if (particleBlacklist.contains(particleName)) {
-                            event.setCancelled(true);
-                        }
-                    } catch (Exception e) {
-                        // Ignore read errors
+                    if (fpsHelperEnabled && blockHeavyParticles && type == PacketType.Play.Server.WORLD_PARTICLES) {
+                        handleParticlePacket(event);
+                    } else if (explosionManagerEnabled && cancelExplosionEffects && type == PacketType.Play.Server.EXPLOSION) {
+                        event.setCancelled(true);
                     }
-                } else if (explosionManagerEnabled && cancelExplosionEffects && type == PacketType.Play.Server.EXPLOSION) {
-                    event.setCancelled(true);
                 }
-            }
-        });
+            });
+        }
 
         if (badPacketControlEnabled) {
-            protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.NORMAL, PacketType.Play.Client.getInstance()) {
+            protocolManager.addPacketListener(new PacketAdapter(this, ListenerPriority.LOWEST, PacketType.Play.Client.getInstance()) {
                 @Override
                 public void onPacketReceiving(PacketEvent event) {
                     if (event.isCancelled() || event.getPlayer() == null) return;
-                    UUID playerUUID = event.getPlayer().getUniqueId();
-                    packetCounts.put(playerUUID, packetCounts.getOrDefault(playerUUID, 0) + 1);
+                    packetCounts.merge(event.getPlayer().getUniqueId(), 1, Integer::sum);
                 }
             });
         }
     }
 
+    private void handleParticlePacket(PacketEvent event) {
+        try {
+            WrappedParticle wrappedParticle = event.getPacket().getNewParticles().read(0);
+            if (particleBlacklist.contains(wrappedParticle.getParticle().name())) {
+                event.setCancelled(true);
+            }
+        } catch (Exception ignored) {
+            // Ignore packet read errors
+        }
+    }
+
+    // --- Command Handling ---
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission("atomoptimizer.admin")) {
+            sendMessage(sender, "&cBu komutu kullanma yetkiniz yok.");
+            return true;
+        }
+
+        if (args.length == 0) {
+            sendHelpMessage(sender);
+            return true;
+        }
+
+        switch (args[0].toLowerCase()) {
+            case "reload":
+                performReload(sender);
+                break;
+            case "status":
+                showStatus(sender);
+                break;
+            case "gc":
+                forceGC(sender);
+                break;
+            case "clearitems":
+                clearItems(sender);
+                break;
+            case "clearentities":
+                clearEntities(sender);
+                break;
+            default:
+                sendHelpMessage(sender);
+                break;
+        }
+        return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 1) {
+            return StringUtil.copyPartialMatches(args[0],
+                    Arrays.asList("reload", "status", "gc", "clearitems", "clearentities"),
+                    new ArrayList<>());
+        }
+        return Collections.emptyList();
+    }
+
+
+    // --- Command Actions ---
+
+    private void sendHelpMessage(CommandSender sender) {
+        sendMessage(sender, "&6&lATOMLAND Optimizer Komutları:");
+        sendMessage(sender, "&e/ao reload &7- Eklenti ayarlarını yeniden yükler.");
+        sendMessage(sender, "&e/ao status &7- Sunucu performans durumunu gösterir.");
+        sendMessage(sender, "&e/ao gc &7- Sunucuda manuel olarak çöp toplayıcıyı çalıştırır.");
+        sendMessage(sender, "&e/ao clearitems &7- Yerdeki tüm gereksiz eşyaları temizler.");
+        sendMessage(sender, "&e/ao clearentities &7- Gereksiz tüm yaratıkları temizler.");
+    }
+
+    private void performReload(CommandSender sender) {
+        reloadConfig();
+        loadConfigValues();
+        getServer().getScheduler().cancelTasks(this);
+        startTasks();
+        sendMessage(sender, "&aEklenti yapılandırması başarıyla yeniden yüklendi!");
+    }
+
+    private void showStatus(CommandSender sender) {
+        double[] tps = Bukkit.getServer().getTPS();
+        double mspt = Bukkit.getServer().getAverageTickTime();
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1048576L;
+        long maxMemory = runtime.maxMemory() / 1048576L;
+
+        int totalChunks = Bukkit.getWorlds().stream().mapToInt(w -> w.getLoadedChunks().length).sum();
+        int totalEntities = Bukkit.getWorlds().stream().mapToInt(w -> w.getEntities().size()).sum();
+
+        sendMessage(sender, "&6&lSunucu Performans Durumu");
+        sendMessage(sender, "&eTPS: &f" + twoDecimals.format(tps[0]) + " (1m)");
+        sendMessage(sender, "&eMSPT: &f" + twoDecimals.format(mspt));
+        sendMessage(sender, "&eBellek: &f" + usedMemory + "MB / " + maxMemory + "MB");
+        sendMessage(sender, "&eYüklü Chunk: &f" + totalChunks);
+        sendMessage(sender, "&eToplam Varlık: &f" + totalEntities);
+    }
+
+    private void forceGC(CommandSender sender) {
+        sendMessage(sender, "&eGarbage Collector (GC) manuel olarak tetikleniyor...");
+        System.gc();
+        sendMessage(sender, "&aGC başarıyla çalıştırıldı.");
+    }
+
+    private void clearItems(CommandSender sender) {
+        int clearedCount = clearAllItems();
+        sendMessage(sender, "&aBaşarıyla " + clearedCount + " adet yerdeki eşya temizlendi.");
+    }
+
+    private void clearEntities(CommandSender sender) {
+        int clearedCount = clearAllMobs();
+        sendMessage(sender, "&aBaşarıyla " + clearedCount + " adet yaratık temizlendi.");
+    }
 
     // --- Event Handlers ---
 
-    // Entity Optimization
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityTarget(EntityTargetLivingEntityEvent event) {
-        if (!entityOptimizationEnabled || !cancelMonsterTargeting) return;
-        if (event.getTarget() instanceof Player && event.getEntity() instanceof Monster) {
+        if (entityOptimizationEnabled && cancelMonsterTargeting && event.getTarget() instanceof Player && event.getEntity() instanceof Monster) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityDamage(EntityDamageByEntityEvent event) {
-        if (!entityOptimizationEnabled || !preventMonsterInfighting) return;
-        if (event.getDamager() instanceof Monster && event.getEntity() instanceof Monster) {
+        if (entityOptimizationEnabled && preventMonsterInfighting && event.getDamager() instanceof Monster && event.getEntity() instanceof Monster) {
             event.setCancelled(true);
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onCreatureSpawn(CreatureSpawnEvent event) {
-        if (!entityOptimizationEnabled || !cancelNaturalSpawning) return;
-        if (event.getSpawnReason() == CreatureSpawnEvent.SpawnReason.NATURAL) {
-            event.setCancelled(true);
-        }
-    }
-
-    // Redstone Optimizer
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onRedstone(BlockRedstoneEvent event) {
         if (!redstoneOptimizerEnabled) return;
-
-        if (redstoneThrottlingEnabled) {
-            Location loc = event.getBlock().getLocation();
-            long now = System.currentTimeMillis();
-            if (redstoneLastUpdate.containsKey(loc) && (now - redstoneLastUpdate.get(loc) < redstoneMinDelay)) {
-                event.setNewCurrent(event.getOldCurrent());
-                return;
-            }
-            redstoneLastUpdate.put(loc, now);
+        Location loc = event.getBlock().getLocation();
+        long now = System.currentTimeMillis();
+        long lastUpdate = redstoneLastUpdate.getOrDefault(loc, 0L);
+        if (now - lastUpdate < redstoneMinDelay) {
+            event.setNewCurrent(event.getOldCurrent());
+            return;
         }
+        redstoneLastUpdate.put(loc, now);
     }
 
-    // Item Cooldowns
+    @EventHandler(ignoreCancelled = true)
+    public void onHopperMove(InventoryMoveItemEvent event) {
+        if (!hopperOptimizerEnabled || hopperCheckInterval <= 0) return;
+        Location loc = event.getInitiator().getLocation();
+        long now = System.currentTimeMillis();
+        if (hopperCooldowns.containsKey(loc) && (now - hopperCooldowns.get(loc) < hopperCheckInterval * 50L)) {
+            event.setCancelled(true);
+            return;
+        }
+        hopperCooldowns.put(loc, now);
+    }
+
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (!itemCooldownsEnabled || !event.hasItem()) return;
-
         Player player = event.getPlayer();
         ItemStack item = event.getItem();
+        if (item == null) return;
         Material type = item.getType();
 
         if (type == Material.TRIDENT) {
-            if (item.containsEnchantment(Enchantment.RIPTIDE)) {
-                player.setCooldown(type, riptideCooldown);
-            } else {
-                player.setCooldown(type, tridentCooldown);
-            }
+            int cooldown = item.containsEnchantment(Enchantment.RIPTIDE) ? riptideCooldown : tridentCooldown;
+            player.setCooldown(type, cooldown);
         } else if (type == Material.FIREWORK_ROCKET) {
             player.setCooldown(type, fireworkCooldown);
         }
     }
 
-    // Explosion Manager
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
         if (!explosionManagerEnabled) return;
-
         Chunk chunk = event.getLocation().getChunk();
-        EntityType entityType = event.getEntityType();
+        EntityType type = event.getEntityType();
 
-        if (entityType == EntityType.PRIMED_TNT || entityType == EntityType.MINECART_TNT) {
-            int count = tntExplosions.getOrDefault(chunk, 0) + 1;
-            if (count > tntLimitPerChunk) {
+        if (type == EntityType.PRIMED_TNT || type == EntityType.MINECART_TNT) {
+            if (tntExplosions.merge(chunk, 1, Integer::sum) > tntLimitPerChunk) {
                 event.setCancelled(true);
                 return;
             }
-            tntExplosions.put(chunk, count);
-        } else if (entityType == EntityType.ENDER_CRYSTAL) {
-            int count = crystalExplosions.getOrDefault(chunk, 0) + 1;
-            if (count > endCrystalLimitPerChunk) {
+        } else if (type == EntityType.ENDER_CRYSTAL) {
+            if (crystalExplosions.merge(chunk, 1, Integer::sum) > endCrystalLimitPerChunk) {
                 event.setCancelled(true);
                 return;
             }
-            crystalExplosions.put(chunk, count);
         }
 
-        if (preventExplosionBlockDamage) {
-            event.blockList().clear();
-        }
-        if (preventExplosionFire) {
-            event.setYield(0f);
-        }
+        if (preventExplosionBlockDamage) event.blockList().clear();
+        if (preventExplosionFire) event.setYield(0f);
     }
 
-    // Disable Falling Blocks
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFallingBlock(EntityChangeBlockEvent event) {
         if (disableFallingBlocks && event.getEntityType() == EntityType.FALLING_BLOCK) {
@@ -427,58 +522,40 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         }
     }
 
-    // Chunk Activity Tracker
+    // --- Chunk Activity Tracking ---
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (!unusedChunkCleanerEnabled && !fastChunkLoaderEnabled) return;
-
-        Chunk fromChunk = event.getFrom().getChunk();
         Chunk toChunk = event.getTo().getChunk();
-
-        if (!fromChunk.equals(toChunk)) {
+        if (!event.getFrom().getChunk().equals(toChunk)) {
             chunkLastActivity.put(toChunk, System.currentTimeMillis());
-            if (fastChunkLoaderEnabled) {
-                preloadChunks(event.getPlayer());
-            }
+            if (fastChunkLoaderEnabled) preloadChunks(event.getPlayer(), toChunk);
         }
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        if (fastChunkLoaderEnabled) {
-            preloadChunks(event.getPlayer());
-        }
+        if (fastChunkLoaderEnabled) preloadChunks(event.getPlayer(), event.getPlayer().getLocation().getChunk());
     }
 
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
-        if (unusedChunkCleanerEnabled) {
-            chunkLastActivity.put(event.getChunk(), System.currentTimeMillis());
-        }
+        if (unusedChunkCleanerEnabled) chunkLastActivity.put(event.getChunk(), System.currentTimeMillis());
     }
 
     @EventHandler
     public void onChunkUnload(ChunkUnloadEvent event) {
-        if (unusedChunkCleanerEnabled) {
-            chunkLastActivity.remove(event.getChunk());
-        }
+        if (unusedChunkCleanerEnabled) chunkLastActivity.remove(event.getChunk());
     }
 
-    private void preloadChunks(Player player) {
-        if (!fastChunkLoaderEnabled) return;
-        Location loc = player.getLocation();
-        World world = loc.getWorld();
-        int cx = loc.getBlockX() >> 4;
-        int cz = loc.getBlockZ() >> 4;
-
+    private void preloadChunks(Player player, Chunk center) {
+        World world = player.getWorld();
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (int x = cx - preloadRadius; x <= cx + preloadRadius; x++) {
-                    for (int z = cz - preloadRadius; z <= cz + preloadRadius; z++) {
-                        if (!world.isChunkLoaded(x, z)) {
-                            world.getChunkAtAsync(x, z);
-                        }
+                for (int x = center.getX() - preloadRadius; x <= center.getX() + preloadRadius; x++) {
+                    for (int z = center.getZ() - preloadRadius; z <= center.getZ() + preloadRadius; z++) {
+                        world.getChunkAtAsync(x, z);
                     }
                 }
             }
@@ -486,14 +563,52 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     }
 
     // --- Helper Methods ---
+
+    private String colorize(String message) {
+        return ChatColor.translateAlternateColorCodes('&', message);
+    }
+
+    private void sendMessage(CommandSender sender, String message) {
+        sender.sendMessage(prefix + colorize(message));
+    }
+
     private boolean isChunkInUse(Chunk chunk) {
-        for (Entity entity : chunk.getEntities()) {
-            if (entity instanceof Player) {
-                return true;
+        return chunk.isForceLoaded() || (chunk.getPlayers().length > 0);
+    }
+
+    private int clearAllItems() {
+        List<Entity> toRemove = new ArrayList<>();
+        for (World world : Bukkit.getWorlds()) {
+            for (Item item : world.getEntitiesByClass(Item.class)) {
+                if (!itemBlacklist.contains(item.getItemStack().getType().name())) {
+                    toRemove.add(item);
+                }
             }
         }
-        return false;
+        toRemove.forEach(Entity::remove);
+        return toRemove.size();
     }
+
+    private int clearAllMobs() {
+        List<LivingEntity> toRemove = new ArrayList<>();
+        for (World world : Bukkit.getWorlds()) {
+            for (LivingEntity entity : world.getLivingEntities()) {
+                if (entity instanceof Player) continue;
+                if (!shouldRemoveMob(entity)) continue;
+                toRemove.add(entity);
+            }
+        }
+        toRemove.forEach(Entity::remove);
+        return toRemove.size();
+    }
+
+    private boolean shouldRemoveMob(LivingEntity entity) {
+        if (ignoreNamedMobs && entity.getCustomName() != null) return false;
+        if (ignoreTamedMobs && entity instanceof Tameable && ((Tameable) entity).isTamed()) return false;
+        if (ignoreInLoveMobs && entity instanceof Animals && ((Animals) entity).isLoveMode()) return false;
+        return entity instanceof Mob;
+    }
+
 
     // --- Runnable Tasks ---
 
@@ -507,39 +622,23 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         @Override
         public void run() {
             if (itemCleanerWarnings.contains(timer)) {
-                String message = prefix + ChatColor.YELLOW + "Yerdeki eşyalar " + ChatColor.RED + timer + ChatColor.YELLOW + " saniye içinde temizlenecek!";
+                String message = prefix + colorize("&eYerdeki eşyalar &c" + timer + " &esaniye içinde temizlenecek!");
                 Bukkit.broadcastMessage(message);
             }
 
-            if (timer <= 0) {
-                List<Entity> toRemove = new ArrayList<>();
-                for (World world : Bukkit.getWorlds()) {
-                    for (Entity entity : world.getEntities()) {
-                        if (entity instanceof Item) {
-                            Item item = (Item) entity;
-                            if (!itemBlacklist.contains(item.getItemStack().getType().name())) {
-                                toRemove.add(item);
-                            }
-                        }
-                    }
-                }
-
-                int finalCount = toRemove.size();
+            if (timer-- <= 0) {
+                int finalCount = clearAllItems();
                 if (finalCount > 0) {
                     new BukkitRunnable() {
                         @Override
                         public void run() {
-                            toRemove.forEach(Entity::remove);
-                            String message = prefix + ChatColor.GREEN + "" + finalCount + " adet gereksiz eşya temizlendi.";
+                            String message = prefix + colorize("&a" + finalCount + " adet gereksiz eşya temizlendi.");
                             Bukkit.broadcastMessage(message);
                             getLogger().info(finalCount + " adet gereksiz eşya temizlendi.");
                         }
                     }.runTask(ATOMLAND_Optimizer.this);
                 }
-
                 this.timer = itemCleanerInterval;
-            } else {
-                timer--;
             }
         }
     }
@@ -547,31 +646,9 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     private class SmartMobCleanerTask extends BukkitRunnable {
         @Override
         public void run() {
-            List<LivingEntity> toRemove = new ArrayList<>();
-            for (World world : Bukkit.getWorlds()) {
-                for (LivingEntity entity : world.getLivingEntities()) {
-                    if (entity instanceof Player || !(entity instanceof Mob)) continue;
-
-                    boolean shouldRemove = true;
-                    if (ignoreNamedMobs && entity.getCustomName() != null) shouldRemove = false;
-                    if (ignoreTamedMobs && entity instanceof Tameable && ((Tameable) entity).isTamed()) shouldRemove = false;
-                    // FIX: Check if entity is an Animal before casting and calling isLoveMode()
-                    if (ignoreInLoveMobs && entity instanceof Animals && ((Animals) entity).isLoveMode()) shouldRemove = false;
-
-                    if (shouldRemove) {
-                        toRemove.add(entity);
-                    }
-                }
-            }
-
-            if (!toRemove.isEmpty()) {
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        toRemove.forEach(Entity::remove);
-                        getLogger().info(toRemove.size() + " adet gereksiz canavar temizlendi.");
-                    }
-                }.runTask(ATOMLAND_Optimizer.this);
+            int finalCount = clearAllMobs();
+            if (finalCount > 0) {
+                getLogger().info(finalCount + " adet gereksiz canavar temizlendi.");
             }
         }
     }
@@ -580,29 +657,21 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         @Override
         public void run() {
             double currentTps = Bukkit.getServer().getTPS()[0];
+            double currentMspt = Bukkit.getServer().getAverageTickTime();
 
-            double currentMspt = 0;
-            try {
-                if (Bukkit.getMinecraftVersion().contains("1.18") || Bukkit.getMinecraftVersion().contains("1.19") || Bukkit.getMinecraftVersion().contains("1.20") || Bukkit.getMinecraftVersion().contains("1.21")) {
-                    currentMspt = Bukkit.getServer().getAverageTickTime();
-                }
-            } catch (Exception e) {
-                // Not on Paper or a compatible fork.
-            }
-
-            if (currentTps < tpsThreshold || (currentMspt > 0 && currentMspt > msptThreshold)) {
-                String reason = currentTps < tpsThreshold ? "Düşük TPS (" + String.format("%.2f", currentTps) + ")" : "Yüksek MSPT (" + String.format("%.2f", currentMspt) + ")";
-                getLogger().warning("Performans sorunu tespit edildi: " + reason + ". Optimizasyonlar başlatılıyor...");
+            if (currentTps < tpsThreshold || currentMspt > msptThreshold) {
+                String reason = currentTps < tpsThreshold ? "Düşük TPS (" + twoDecimals.format(currentTps) + ")" : "Yüksek MSPT (" + twoDecimals.format(currentMspt) + ")";
+                getLogger().warning("Performans sorunu tespit edildi: " + reason + ". Otomatik optimizasyonlar başlatılıyor...");
 
                 if (gcOnLowTps) {
                     System.gc();
-                    getLogger().info("[Performans Monitörü] Garbage Collector çalıştırıldı.");
+                    getLogger().info("[Performans Monitörü] Düşük TPS nedeniyle Garbage Collector çalıştırıldı.");
                 }
-                if (clearChunksOnLowTps && unusedChunkCleanerEnabled) {
+                if (clearChunksOnLowTps) {
                     new UnusedChunkCleanerTask().run();
                 }
-                if (optimizeAiOnLowTps && customMobAiEnabled) {
-                    new CustomMobAITask().run();
+                if (optimizeAiOnLowTps) {
+                    new EntityProcessingTask().run();
                 }
             }
         }
@@ -611,15 +680,15 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     private class PacketCounterResetTask extends BukkitRunnable {
         @Override
         public void run() {
-            for (Map.Entry<UUID, Integer> entry : packetCounts.entrySet()) {
+            packetCounts.entrySet().removeIf(entry -> {
                 if (entry.getValue() > packetLimit) {
                     Player player = Bukkit.getPlayer(entry.getKey());
                     if (player != null) {
                         player.sendMessage(prefix + packetWarningMsg);
                     }
                 }
-            }
-            packetCounts.clear();
+                return true;
+            });
         }
     }
 
@@ -644,17 +713,13 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
         public void run() {
             long now = System.currentTimeMillis();
             List<Chunk> toUnload = new ArrayList<>();
-
             for (World world : Bukkit.getWorlds()) {
                 for (Chunk chunk : world.getLoadedChunks()) {
-                    // FIX: Replace deprecated isPlayersInChunk() with a modern equivalent
-                    if (chunk.isForceLoaded() || isChunkInUse(chunk)) {
-                        chunkLastActivity.put(chunk, now); // Update activity if players are present
+                    if (isChunkInUse(chunk)) {
+                        chunkLastActivity.put(chunk, now); // Update activity if in use
                         continue;
                     }
-
-                    long lastActivity = chunkLastActivity.getOrDefault(chunk, 0L);
-                    if (now - lastActivity > minChunkIdleTime) {
+                    if (now - chunkLastActivity.getOrDefault(chunk, 0L) > minChunkIdleTime) {
                         toUnload.add(chunk);
                     }
                 }
@@ -664,52 +729,69 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
                 new BukkitRunnable() {
                     @Override
                     public void run() {
+                        int unloadedCount = 0;
                         for (Chunk chunk : toUnload) {
-                            // FIX: Replace deprecated isPlayersInChunk() with a modern equivalent
-                            if (!isChunkInUse(chunk)) { // Final check
-                                chunk.unload(true);
+                            if (!isChunkInUse(chunk) && chunk.unload()) {
                                 chunkLastActivity.remove(chunk);
+                                unloadedCount++;
                             }
                         }
-                        getLogger().info("[Chunk Temizleyici] " + toUnload.size() + " adet kullanılmayan chunk bellekten kaldırıldı.");
+                        if (unloadedCount > 0) {
+                            getLogger().info("[Chunk Temizleyici] " + unloadedCount + " adet kullanılmayan chunk bellekten kaldırıldı.");
+                        }
                     }
                 }.runTask(ATOMLAND_Optimizer.this);
             }
         }
     }
 
-    private class CustomMobAITask extends BukkitRunnable {
+    private class EntityProcessingTask extends BukkitRunnable {
         @Override
         public void run() {
             final int aiDistSq = disableAiDistance * disableAiDistance;
+            final int cullDistSq = cullDistance * cullDistance;
 
             for (World world : Bukkit.getWorlds()) {
                 List<Player> players = world.getPlayers();
                 if (players.isEmpty()) {
-                    for (LivingEntity entity : world.getLivingEntities()) {
-                        if (entity instanceof Mob && !mobAiBlacklist.contains(entity.getType().name().toUpperCase())) {
-                            ((Mob) entity).setAI(false);
+                    // No players in world, disable AI for all mobs if enabled
+                    if(customMobAiEnabled) {
+                        for (LivingEntity entity : world.getLivingEntities()) {
+                            if (entity instanceof Mob && !mobAiBlacklist.contains(entity.getType().name())) {
+                                ((Mob) entity).setAI(false);
+                            }
                         }
                     }
                     continue;
                 }
 
-                for (LivingEntity entity : world.getLivingEntities()) {
-                    if (!(entity instanceof Mob) || entity instanceof Player) continue;
+                List<LivingEntity> worldEntities = world.getLivingEntities();
 
-                    if (mobAiBlacklist.contains(entity.getType().name().toUpperCase())) continue;
+                // Custom AI Processing
+                if (customMobAiEnabled) {
+                    for (LivingEntity entity : worldEntities) {
+                        if (!(entity instanceof Mob) || mobAiBlacklist.contains(entity.getType().name())) continue;
 
-                    boolean isNearPlayer = false;
-                    for (Player player : players) {
-                        if (player.getLocation().distanceSquared(entity.getLocation()) < aiDistSq) {
-                            isNearPlayer = true;
-                            break;
+                        boolean isNearPlayer = players.stream().anyMatch(p -> p.getLocation().distanceSquared(entity.getLocation()) < aiDistSq);
+                        Mob mob = (Mob) entity;
+                        if (mob.hasAI() != isNearPlayer) {
+                            mob.setAI(isNearPlayer);
                         }
                     }
+                }
 
-                    Mob mob = (Mob) entity;
-                    if (mob.hasAI() != isNearPlayer) {
-                        mob.setAI(isNearPlayer);
+                // Entity Culling Processing
+                if (entityCullingEnabled) {
+                    for (Player player : players) {
+                        for (LivingEntity entity : worldEntities) {
+                            if (entity.equals(player) || !(entity instanceof Mob) || cullBlacklist.contains(entity.getType().name())) continue;
+
+                            if (player.getLocation().distanceSquared(entity.getLocation()) > cullDistSq) {
+                                player.hideEntity(ATOMLAND_Optimizer.this, entity);
+                            } else {
+                                player.showEntity(ATOMLAND_Optimizer.this, entity);
+                            }
+                        }
                     }
                 }
             }

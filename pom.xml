@@ -6,8 +6,7 @@
 
     <groupId>atom.atomland.optimizer</groupId>
     <artifactId>ATOMLAND_Optimizer</artifactId>
-    <!-- Ana versiyonu burada manuel olarak yönet. Jenkins bunun sonuna build numarasını ekleyecek. -->
-    <version>2.1.3</version>
+    <version>3.0.0</version>
 
     <properties>
         <java.version>21</java.version>
@@ -29,23 +28,18 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.20.1-R0.1-SNAPSHOT</version>
+            <version>1.21-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.comphenix.protocol</groupId>
             <artifactId>ProtocolLib</artifactId>
-            <version>5.1.0</version>
+            <version>5.2.0</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>
 
     <build>
-        <!--
-        Oluşturulacak .jar dosyasının adını dinamik hale getiriyoruz.
-        Jenkins, ${BUILD_NUMBER} değişkenini otomatik olarak sağlayacak.
-        Sonuç: ATOMLAND_Optimizer-2.1.0-SNAPSHOT-b1.jar, -b2.jar gibi...
-        -->
         <finalName>ATOMLAND-Optimizer-v${project.version}</finalName>
         <defaultGoal>clean package</defaultGoal>
         <plugins>
