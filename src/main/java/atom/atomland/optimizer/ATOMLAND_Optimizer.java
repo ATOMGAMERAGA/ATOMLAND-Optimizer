@@ -219,8 +219,11 @@ public class ATOMLAND_Optimizer extends JavaPlugin implements Listener, CommandE
     }
 
     private void startTasks() {
-        if (itemCleanerEnabled) new SmartItemClearerTask().runTaskTimerAsynchronously(this, 20L, 20L);
-        if (mobCleanerEnabled) new SmartMobCleanerTask().runTaskTimerAsynchronously(this, 200L, mobCleanerInterval * 20L);
+        // DÜZELTME: Bu görevler artık senkron çalışacak.
+        if (itemCleanerEnabled) new SmartItemClearerTask().runTaskTimer(this, 20L, 20L);
+        if (mobCleanerEnabled) new SmartMobCleanerTask().runTaskTimer(this, 200L, mobCleanerInterval * 20L);
+
+        // Diğer görevler aynı kalabilir.
         if (perfMonitorEnabled) new PerformanceMonitorTask().runTaskTimerAsynchronously(this, 100L, 100L);
         if (badPacketControlEnabled) new PacketCounterResetTask().runTaskTimerAsynchronously(this, 20L, 20L);
         if (memoryOptimizerEnabled) new MemoryOptimizerTask().runTaskTimer(this, gcInterval * 20L, gcInterval * 20L);
