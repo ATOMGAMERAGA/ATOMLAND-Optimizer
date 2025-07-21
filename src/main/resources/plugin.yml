@@ -1,6 +1,6 @@
 # plugin.yml - ATOMLAND Optimizer v3.0.0 için yapılandırma dosyası.
 name: ATOMLAND_Optimizer
-version: 3.0.1
+version: 3.0.2
 main: atom.atomland.optimizer.ATOMLAND_Optimizer
 author: Atom Gamer Arda
 description: Minecraft sunucuları için hepsi bir arada, yüksek performanslı ve özelleştirilebilir optimizasyon eklentisi.
